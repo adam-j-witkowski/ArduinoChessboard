@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <!-- Big shout-out to w3schools for CSS and HTML references --
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Our Awesome Project</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                flex-direction: column;
+                height: 100vh;
+                margin: 0;
+                background-color: #f5f5f5;
+            }
+            .chess-board {
+                display: grid;
+                grid-template-columns: repeat(8, 50px);
+                grid-template-rows: repeat(8, 50px);
+                border: 2px solid #333;
+                box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+            }
+            .square {
+                width: 50px;
+                height: 50px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                font-size: 32px;
+            }
+            .white {
+                background-color: #f0d9b5;
+            }
+            .black {
+                background-color: #b58863;
+            }
+            .piece {
+                user-select: none;
+            }
+            .controls {
+                margin-top: 20px;
+            }
+            button {
+                padding: 8px 16px;
+                background-color: #4caf50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+            }
+            button:hover {
+                background-color: #45a049;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Our Awesome Project</h1>
+        <div class="chess-board" id="board">
+            <!-- The squares are generated in JS below --
+        </div>
+        <div class="controls">
+            <button id="refresh">Refresh Board</button>
+        </div>
+
+        <script>
+            // Map pieces to chess unicode symbols
+            // Lowercase is white.
+            // Uppercase is black.
+            const pieceMap = {
+                r: "♜",
+                n: "♞",
+                b: "♝",
+                q: "♛",
+                k: "♚",
+                p: "♟",
+                R: "♖",
+                N: "♘",
+                B: "♗",
+                Q: "♕",
+                K: "♔",
+                P: "♙",
+                " ": "",
+            };
+
+            // Generate squares for the chess board
+            const board = document.getElementById("board");
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const square = document.createElement("div");
+                    square.className = `square ${(row + col) % 2 === 0 ? "white" : "black"}`;
+                    square.id = `square-${row}-${col}`;
+                    board.appendChild(square);
+                }
+            }
+
+            // Function to fetch and update the board state
+            async function updateBoard() {
+                try {
+                    const response = await fetch("/state");
+                    const data = await response.json();
+
+                    if (data.board) {
+                        const boardState = data.board;
+
+                        // Parse the board state (format: RNBKQBNR,PPPPPPPP,        ,        ,        ,        ,pppppppp,rnbkqbnr)
+                        const rows = boardState.split(",");
+
+                        for (let row = 0; row < 8; row++) {
+                            const rowData = rows[row] || "        ";
+                            for (let col = 0; col < 8; col++) {
+                                const piece = rowData[col] || " ";
+                                const square = document.getElementById(
+                                    `square-${row}-${col}`,
+                                );
+                                square.innerHTML = `<span class="piece">${pieceMap[piece]}</span>`;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error fetching board state:", error);
+                }
+            }
+
+            // Set up auto-refresh
+            let refreshInterval;
+
+            function startAutoRefresh() {
+                updateBoard(); // Initial update
+                refreshInterval = setInterval(updateBoard, 750);
+            }
+
+            // Event listeners
+            document
+                .getElementById("refresh")
+                .addEventListener("click", updateBoard);
+
+            // Start auto-refresh when page loads
+            window.addEventListener("load", startAutoRefresh);
+        </script>
+    </body>
+</html>
