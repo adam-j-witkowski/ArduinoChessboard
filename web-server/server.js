@@ -27,6 +27,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 global.boardState = new Array(64).fill(0);
+global.binaryBoardState = new Array(64).fill('0');
 
 // Pinged by Arduino #3 to update the board state
 app.post("/update", (req, res) => {
@@ -44,12 +45,61 @@ app.post("/update", (req, res) => {
   res.status(200).send("OK");
 });
 
-// Allows polling the web server for board state
+// Endpoint for binary board state updates
+app.post("/update-binary", (req, res) => {
+  if (!req.body || !req.body.binaryState) {
+    const error = "Bad request: missing binary state data";
+    console.error(error);
+    res.status(400).send(error);
+    return;
+  }
+
+  const binaryState = req.body.binaryState;
+  
+  // Validate that we got exactly 64 characters (8x8 board)
+  if (binaryState.length !== 64) {
+    const error = `Invalid binary state length: ${binaryState.length} (expected 64)`;
+    console.error(error);
+    res.status(400).send(error);
+    return;
+  }
+  
+  global.binaryBoardState = binaryState;
+  console.log("Updated Binary Board:", global.binaryBoardState);
+
+  res.status(200).send("OK");
+});
+
+// Allows polling the web server for traditional board state
 app.get("/state", (req, res) => {
   res.json({ board: global.boardState });
 });
 
-// Serve the HTML page on the root route
+// Endpoint for polling binary board state
+app.get("/binary-state", (req, res) => {
+
+  // Convert string to array of 0/1 values for better JSON formatting
+  const binaryArray = Array.from(global.binaryBoardState).map(c => c === '1' ? 1 : 0);
+  
+  // Format the binary state as a 2D array for easier consumption
+  const board2D = [];
+  for (let i = 0; i < 8; i++) {
+    const row = [];
+    for (let j = 0; j < 8; j++) {
+      const index = i * 8 + j;
+      row.push(binaryArray[index]);
+    }
+    board2D.push(row);
+  }
+  
+  res.json({
+    binaryString: global.binaryBoardState,
+    binaryArray: binaryArray,
+    board2D: board2D
+  });
+});
+
+// Serve the board visualizer page
 app.get("/", (req, res) => {
   console.log("Serving index.html");
   res.sendFile(path.join(__dirname, "index.html"));
