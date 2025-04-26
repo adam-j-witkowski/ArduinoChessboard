@@ -1,10 +1,10 @@
 #include <WiFiS3.h>
 #include <WiFiClient.h>
 
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "Traman Net";
+const char* password = "frogbones";
 
-const char* serverIP = "YOUR_PUBLIC_IP_ADDRESS";
+const char* serverIP = "10.41.183.81";
 const int serverPort = 3000;
 
 static char boardState[8][8] = {

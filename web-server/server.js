@@ -1,7 +1,23 @@
 import express from "express";
 import bodyParser from "body-parser";
+import clipboard from "clipboardy";
 import path from "path";
 import { fileURLToPath } from "url";
+
+import dns from "node:dns";
+import os from "node:os";
+
+async function getLocalIP() {
+  return new Promise((resolve, reject) => {
+    dns.lookup(os.hostname(), { family: 4 }, (err, addr) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(addr);
+      }
+    });
+  });
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,7 +51,14 @@ app.get("/state", (req, res) => {
 
 // Serve the HTML page on the root route
 app.get("/", (req, res) => {
+  console.log("Serving index.html");
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-app.listen(3000, () => console.log("Server running at http://localhost:3000"));
+const port = 3000;
+app.listen(port, '0.0.0.0', async () => {
+  const ip = await getLocalIP();
+  console.log(`Server running at http://${ip}:${port}`);
+  console.log('IP copied to clipboard!');
+  clipboard.writeSync(ip);
+});
