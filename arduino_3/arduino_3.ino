@@ -1,121 +1,198 @@
+/**
+ * Group 61 - Smart Chessboard - Arduino #3
+ * - Seth Traman (stram3, stram3@uic.edu)
+ * - Adam Witkowski (awitk, awitk@uic.edu)
+ * - Paul Quinto (pquin6, pquin6@uic.edu)
+ * 
+ * Arduino #3 is responsible for connecting to the Wi-Fi network and receiving sensor data
+ * from Arduino #1 over serial.  It then forwards that data to a web server on the same Wi-Fi
+ * network using HTTP POST requests, attempting to use HTTP keep-alive to maintain a persistent
+ * connection to the server.
+ *
+ * For serial communication with Arduino #1, see arduino_1.ino for details.
+ * 
+ * Reference: https://docs.arduino.cc/libraries/wifi/
+ * Reference: https://docs.arduino.cc/language-reference/en/functions/communication/serial/
+ * Reference: https://stackoverflow.com/questions/20763999/explain-http-keep-alive-mechanism
+ * Reference: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/POST
+ */
+
 #include <WiFiS3.h>
 #include <WiFiClient.h>
 
-const char *ssid = "Traman Net";
-const char *password = "frogbones";
+const char *ssid = "Traman Net";       // Wi-FI network name
+const char *password = "frogbones";    // Wi-Fi network password
+const char *serverIP = "10.41.183.81"; // Web server IP address (should be auto-copied on 'npm start')
+const int serverPort = 3000;           // Web server port (should be constant)
 
-const char *serverIP = "10.41.183.81";
-const int serverPort = 3000;
+const int MAX_SENSORS = 32; // Most amount of sensors that could ever be connected to Arduino #1
 
-// Constants for serial communication with arduino #1
-const char MSG_BEGIN = '<';
-const char MSG_END = '>';
-const int BOARD_SIZE = 8;
+const unsigned long WIFI_CHECK_INTERVAL = 500; // WiFi connection check interval in ms
+const unsigned long PROCESS_INTERVAL = 50;     // Main processing interval in ms (now much faster)
+const unsigned long RECONNECT_INTERVAL = 5000; // How often to check the server connection
 
-// Timer intervals
-const unsigned long WIFI_CHECK_INTERVAL = 500;   // WiFi connection check interval in ms
-const unsigned long PROCESS_INTERVAL = 100;      // Main processing interval in ms
-unsigned long lastWifiCheckTime = 0;
-unsigned long lastProcessTime = 0;
+int sensorCount = 0;                             // Will be determined from Arduino #1's messages
+bool sensorState[MAX_SENSORS] = {false};         // Array of booleans for magnet present/absent
+bool previousSensorState[MAX_SENSORS] = {false}; // To track changes
 
-// Binary board state representation
-bool binaryBoardState[8][8] = {};
-
-// Character board state representation
-static char boardState[8][8] = {
-    {'R', 'N', 'B', 'K', 'Q', 'B', 'N', 'R'},
-    {'P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'},
-    {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '},
-    {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '},
-    {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '},
-    {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '},
-    {'p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'},
-    {'r', 'n', 'b', 'k', 'q', 'b', 'n', 'r'}};
-
-char serialBuffer[70]; // Buffer to hold board state data (64 cells + markers)
-int bufferIndex = 0;
-bool messageStarted = false;
-bool boardUpdated = false;
+WiFiClient client;
+bool dataUpdated = false;
 bool wifiConnected = false;
+bool serverConnected = false;
 
 void setup()
 {
-  Serial.begin(9600); // For talking to the serial console
-  Serial1.begin(9600); // For reading from arduino #1
+  Serial.begin(9600);
+  Serial1.begin(9600);
 
   Serial.println("Connecting to WiFi...");
   WiFi.begin(ssid, password);
+}
 
-  lastWifiCheckTime = millis();
+// Try and connect to the server, returning 'true' on success and 'false' on failure
+bool ensureServerConnection() {
+
+  // Edge case: we think we're connected, but the client says otherwise
+  if (serverConnected && !client.connected()) {
+    Serial.println("Connection lost, reconnecting...");
+    serverConnected = false;
+    client.stop();
+  }
+  
+  // Try and connect, since we aren't connected
+  if (!serverConnected) {
+    Serial.println("Connecting to server...");
+    if (client.connect(serverIP, serverPort)) {
+      Serial.println("Connected to server");
+      serverConnected = true;
+      
+      // The connection: keep-alive is supposed to allow us to send faster
+      // messages to the server by avoiding the need to constantly re-create
+      // an HTTP connection for every message we send.  But, it will time out
+      // and die without activity, so I'm using a /ping endpoint to make sure
+      // there's always some traffic that keeps the connection alive.
+      client.println("GET /ping HTTP/1.1");
+      client.println("Host: " + String(serverIP));
+      client.println("Connection: keep-alive");
+      client.println();
+      
+      // I don't care what the server says in response, just read it into the void xD
+      while (client.available()) {
+        client.read();
+      }
+    } else {
+      // Oopsies
+      Serial.println("Failed to connect to server");
+      return false;
+    }
+  }
+  
+  return serverConnected;
 }
 
 void loop()
 {
-  unsigned long currentMillis = millis();
+  static unsigned long lastWifiCheckTime = millis();
+  static unsigned long lastProcessTime = millis();
+  static unsigned long lastConnectionCheckTime = millis();
 
-  if (!wifiConnected) {
-    if (currentMillis - lastWifiCheckTime >= WIFI_CHECK_INTERVAL) {
-      lastWifiCheckTime = currentMillis;
-      
-      if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("");
-        Serial.println("WiFi connected");
-        Serial.print("IP address: ");
-        Serial.println(WiFi.localIP());
-        wifiConnected = true;
-      } else {
-        Serial.print(".");
-      }
+  // Re-connect to the internet if necessary
+  if (!wifiConnected && millis() - lastWifiCheckTime >= WIFI_CHECK_INTERVAL) {
+    lastWifiCheckTime = millis();
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      // We managed to connect, track that in our global state and print some debug info
+      wifiConnected = true;
+      Serial.println("");
+      Serial.println("WiFi connected");
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+    } else {
+      // Just print something so I know the board isn't idle
+      Serial.print(".");
     }
   }
   
-  readBoardStateFromSerial();
+  readSensorDataFromSerial();
 
-  // Process board updates at regular intervals
-  if (currentMillis - lastProcessTime >= PROCESS_INTERVAL) {
-    lastProcessTime = currentMillis;
+  // I'm trying to use HTTP keepalive to ensure the connection stays open and we don't
+  // have to close and re-open the connection everytime.  This condition basically checks
+  // in on the server connection every RECONNECT_INTERVAL ms just in case the keepalive
+  // connection got killed and we need to re-establish the connection
+  if (wifiConnected && millis() - lastConnectionCheckTime >= RECONNECT_INTERVAL) {
+    lastConnectionCheckTime = millis();
+    ensureServerConnection();
+  }
+
+  // This is our kind of 'core processing loop' where we check if a full data frame has
+  // been received from Arduino #1 and attempt to forward that data to the web server.
+  if (millis() - lastProcessTime >= PROCESS_INTERVAL) {
+    lastProcessTime = millis();
     
-    // If we have just finished reading a new board state, send it to the server
-    if (boardUpdated && wifiConnected) {
-      sendBoardStateToServer();
-      boardUpdated = false;
+    // If data is ready, AND the wifi is connected,
+    if (dataUpdated && wifiConnected) {
+
+      // AND we are already connected, OR we are able to hotfix our connection on-the-spot....
+      if (serverConnected || ensureServerConnection()) {
+        // ...then send the data.
+        sendSensorDataToServer();
+      }
+      dataUpdated = false;
     }
   }
 }
 
-void readBoardStateFromSerial()
+void readSensorDataFromSerial()
 {
+  static char serialBuffer[64];
+  static int bufferIndex = 0;
+  static bool messageStarted = false;
+
+  // We want to repeatedly read bytes until we can't anymore
   while (Serial1.available() > 0)
   {
     char c = Serial1.read();
 
-    if (c == MSG_BEGIN)
+    if (c == '<')
     {
-      // We found the start of a new message
+      // Messages start with < so this designates a new message being received
       messageStarted = true;
       bufferIndex = 0;
     }
-    else if (c == MSG_END && messageStarted)
+    else if (c == '>' && messageStarted)
     {
-      // We found the end of an existing message
+      // Messages end with > so try and parse whatever we've accumulated so far
       messageStarted = false;
+      serialBuffer[bufferIndex] = '\0'; 
+      
+      // I hate this function it's so weird
+      char* countStr = strtok(serialBuffer, ":");
+      char* valueStr = strtok(NULL, "");
+      
+      if (countStr != NULL && valueStr != NULL) {
 
-      // Read through all the data we've accumulated so far
-      if (bufferIndex == 64)
-      {
-        for (int row = 0; row < 8; row++)
-        {
-          for (int col = 0; col < 8; col++)
-          {
-            int index = row * 8 + col;
-            // Convert '0'/'1' characters to boolean values
-            binaryBoardState[row][col] = (serialBuffer[index] == '1');
+        int newSensorCount = atoi(countStr);
+        
+        if (newSensorCount > 0 && newSensorCount <= MAX_SENSORS) {
+          sensorCount = newSensorCount;
+          
+          // Scan the serial buffer for '1'/'0' characters separated by commas, mapping them
+          // onto boolean values in our sensorState array, thus giving us a binary table of
+          // sensor states
+          int sensorIndex = 0;
+          char* token = strtok(valueStr, ",");
+          
+          while (token != NULL && sensorIndex < sensorCount) {
+            sensorState[sensorIndex] = (token[0] == '1');
+            sensorIndex++;
+            token = strtok(NULL, ","); // this is so weird to me
           }
+          
+          dataUpdated = true;
         }
-        boardUpdated = true;
       }
     }
-    else if (messageStarted && bufferIndex < 64)
+    else if (messageStarted && bufferIndex < sizeof(serialBuffer) - 1)
     {
       // Middle of message, just accumulate the data
       serialBuffer[bufferIndex++] = c;
@@ -123,109 +200,35 @@ void readBoardStateFromSerial()
   }
 }
 
-void sendBoardStateToServer()
+void sendSensorDataToServer()
 {
-  Serial.println("\nConnecting to server...");
+  // skip obvious failure cases
+  if (!serverConnected || sensorCount == 0) {
+    return;
+  }
 
-  WiFiClient client;
-
-  // Send the textual representation of the board state
-  if (client.connect(serverIP, serverPort))
-  {
-    Serial.println("Connected to server");
-
-    // Header
-    String httpRequest = "POST /update HTTP/1.1\r\n";
-    httpRequest += "Host: ";
-    httpRequest += serverIP;
-    httpRequest += "\r\n";
-    httpRequest += "Content-Type: application/x-www-form-urlencoded\r\n";
-
-    // Body
-    String httpBody = "boardState=";
-    for (int i = 0; i < 8; i++)
-    {
-      for (int j = 0; j < 8; j++)
-      {
-        httpBody += boardState[i][j];
-      }
-      if (i < 7)
-      {
-        httpBody += ",";
-      }
-    }
-
-    // More headers
-    httpRequest += "Content-Length: ";
-    httpRequest += httpBody.length();
-    httpRequest += "\r\n";
-    httpRequest += "Connection: close\r\n";
-    httpRequest += "\r\n";
-
-    // Attach body
-    httpRequest += httpBody;
-
-    Serial.println("Sending POST request:");
-    Serial.println(httpRequest);
-    client.print(httpRequest);
-
-    // Print the server's response
-    Serial.println("\nReceiving response:");
-    while (client.available())
-    {
-      String line = client.readStringUntil('\r\n');
-      Serial.println(line);
-    }
-
-    client.stop();
-
-    // Send the binary representation of the board state
-    if (client.connect(serverIP, serverPort))
-    {
-      // Header
-      String binaryRequest = "POST /update-binary HTTP/1.1\r\n";
-      binaryRequest += "Host: ";
-      binaryRequest += serverIP;
-      binaryRequest += "\r\n";
-      binaryRequest += "Content-Type: application/x-www-form-urlencoded\r\n";
-
-      // Body
-      String binaryBody = "binaryState=";
-      for (int i = 0; i < 8; i++)
-      {
-        for (int j = 0; j < 8; j++)
-        {
-          binaryBody += binaryBoardState[i][j] ? '1' : '0';
-        }
-      }
-
-      // More headers
-      binaryRequest += "Content-Length: ";
-      binaryRequest += binaryBody.length();
-      binaryRequest += "\r\n";
-      binaryRequest += "Connection: close\r\n";
-      binaryRequest += "\r\n";
-
-      // Attach body
-      binaryRequest += binaryBody;
-
-      Serial.println("Sending binary POST request:");
-      Serial.println(binaryRequest);
-      client.print(binaryRequest);
-
-      // Read response
-      while (client.available())
-      {
-        String line = client.readStringUntil('\r\n');
-        Serial.println(line);
-      }
-
-      Serial.println("\nClosing connection.");
-      client.stop();
+  // Construct our body first, since we need its length to make the headers
+  char httpBody[128];
+  strcpy(httpBody, "sensorState=");
+  int offset = strlen(httpBody);
+  for (int i = 0; i < sensorCount; i++) {
+    httpBody[offset++] = sensorState[i] ? '1' : '0';
+    if (i < sensorCount - 1) {
+      httpBody[offset++] = ',';
     }
   }
-  else
-  {
-    Serial.println("Failed to connect to server.");
+  httpBody[offset] = '\0';
+  
+  client.print("POST /update-sensors HTTP/1.1\r\nHost: ");
+  client.print(serverIP);
+  client.print("\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: ");
+  client.print(offset);
+  client.print("\r\nConnection: keep-alive\r\n\r\n");
+  client.print(httpBody);
+  client.flush();
+  
+  // Ignore the response, we don't really care lol
+  while (client.available()) {
+    client.read();
   }
 }
