@@ -146,57 +146,48 @@ void readSensorDataFromSerial()
 {
   static char serialBuffer[64];
   static int bufferIndex = 0;
-  static bool messageStarted = false;
+  static bool receivingMessage = false;
 
   // We want to repeatedly read bytes until we can't anymore
   while (Serial1.available() > 0)
   {
     char c = Serial1.read();
 
-    if (c == '<')
+    // Process each character based on arduino_1's new protocol
+    // Arduino #1 now sends '1'/'0' for each sensor followed by '\n'
+    if (c == '\n')
     {
-      // Messages start with < so this designates a new message being received
-      messageStarted = true;
-      bufferIndex = 0;
-    }
-    else if (c == '>' && messageStarted)
-    {
-      // Messages end with > so try and parse whatever we've accumulated so far
-      messageStarted = false;
-      serialBuffer[bufferIndex] = '\0'; 
-      
-      // I hate this function it's so weird
-      char* countStr = strtok(serialBuffer, ":");
-      char* valueStr = strtok(NULL, "");
-      
-      if (countStr != NULL && valueStr != NULL) {
-
-        int newSensorCount = atoi(countStr);
+      // End of message, process the collected data
+      if (bufferIndex > 0) {
+        // Add null terminator to make it a proper string
+        serialBuffer[bufferIndex] = '\0';
         
-        if (newSensorCount > 0 && newSensorCount <= MAX_SENSORS) {
-          sensorCount = newSensorCount;
-          
-          // Scan the serial buffer for '1'/'0' characters separated by commas, mapping them
-          // onto boolean values in our sensorState array, thus giving us a binary table of
-          // sensor states
-          int sensorIndex = 0;
-          char* token = strtok(valueStr, ",");
-          
-          while (token != NULL && sensorIndex < sensorCount) {
-            sensorState[sensorIndex] = (token[0] == '1');
-            sensorIndex++;
-            token = strtok(NULL, ","); // this is so weird to me
+        // Set the number of sensors based on the message length
+        sensorCount = bufferIndex;
+        
+        if (sensorCount > 0 && sensorCount <= MAX_SENSORS) {
+          // Parse each character in the buffer ('1' or '0') into our sensor state array
+          for (int i = 0; i < sensorCount; i++) {
+            sensorState[i] = (serialBuffer[i] == '1');
           }
           
           dataUpdated = true;
         }
+        
+        // Reset the buffer for the next message
+        bufferIndex = 0;
+        receivingMessage = false;
       }
     }
-    else if (messageStarted && bufferIndex < sizeof(serialBuffer) - 1)
+    else if (c == '1' || c == '0')
     {
-      // Middle of message, just accumulate the data
-      serialBuffer[bufferIndex++] = c;
+      // If it's a valid sensor state character, add it to our buffer
+      if (bufferIndex < sizeof(serialBuffer) - 1) {
+        serialBuffer[bufferIndex++] = c;
+        receivingMessage = true;
+      }
     }
+    // Ignore any other characters that aren't '0', '1', or '\n'
   }
 }
 

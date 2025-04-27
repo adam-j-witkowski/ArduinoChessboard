@@ -42,7 +42,7 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-global.sensorState = new Array(6).fill('0');
+global.sensorState = new Array(16).fill('0');
 
 // Endpoint for Arduino #3 to update sensor state
 app.post("/update-sensors", (req, res) => {
@@ -55,7 +55,7 @@ app.post("/update-sensors", (req, res) => {
 
   const sensorValues = req.body.sensorState.split(',');
   
-  if (sensorValues.length !== 6) {
+  if (sensorValues.length !== 16) {
     const error = `Invalid sensor state length: ${sensorValues.length} (expected 6)`;
     console.error(error);
     res.status(400).send(error);
