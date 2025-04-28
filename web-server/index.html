@@ -5,7 +5,7 @@
     <!-- Big shout-out to w3schools for CSS and HTML references -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Reversi Board Visualizer</title>
+    <title>Group 61 - Cybernetic Reversi</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -63,16 +63,13 @@
             font-size: 18px;
             font-weight: bold;
         }
-
-        button {
-            padding: 8px 16px;
-            background-color: #4caf50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-top: 10px;
+        
+        #game-status {
+            font-size: 24px;
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 5px;
+            transition: all 0.3s ease;
         }
 
         button:hover {
@@ -82,12 +79,11 @@
 </head>
 
 <body>
-    <h1>Group 61 - Cybernetic Reversi Board</h1>
+    <h1>Group 61 - Cybernetic Reversi</h1>
     <div class="reversi-board" id="board"></div>
     <div class="controls">
         <div class="status" id="player-turn">Current Turn: Black</div>
-        <div class="status"><i>If the board is empty, make sure Arduino #3 is connected to the web server.</i></div>
-        <button id="refresh">Refresh Board</button>
+        <div class="status" id="game-status"></div>
     </div>
 
     <script>
@@ -106,8 +102,7 @@
             }
         }
 
-        // This gets called automatically every so often, and you can also run it manually by
-        // clicking the "Refresh Board" button
+        // This gets called automatically every so often
         async function updateBoard() {
             try {
                 const response = await fetch("/board-state");
@@ -116,10 +111,40 @@
                 if (data.boardArray) {
                     const boardArray = data.boardArray;
                     const currentPlayer = data.currentPlayer || 1;
+                    const gameOver = data.gameOver || false;
+                    const winner = data.winner || 0;
 
+                    // Update player turn status
                     const playerTurnString = currentPlayer === 1 ? 'Black' : 'White';
-
-                    document.getElementById("player-turn").textContent = `Current Turn: ${playerTurnString}`;
+                    const playerTurnElement = document.getElementById("player-turn");
+                    
+                    if (gameOver) {
+                        playerTurnElement.style.display = 'none';
+                    } else {
+                        playerTurnElement.style.display = 'block';
+                        playerTurnElement.textContent = `Current Turn: ${playerTurnString}`;
+                    }
+                    
+                    // Update game status
+                    const gameStatusElement = document.getElementById("game-status");
+                    if (gameOver) {
+                        gameStatusElement.style.fontWeight = 'bold';
+                        
+                        let winnerText = "Game Over - It's a tie!";
+                        if (winner === 1) {
+                            winnerText = "Game Over - Black Wins!";
+                            gameStatusElement.style.color = '#000';
+                        } else if (winner === 2) {
+                            winnerText = "Game Over - White Wins!";
+                            gameStatusElement.style.color = '#333';
+                        } else {
+                            gameStatusElement.style.color = '#666';
+                        }
+                        
+                        gameStatusElement.textContent = winnerText;
+                    } else {
+                        gameStatusElement.textContent = '';
+                    }
 
                     // For each cell of the board state we just fetched from the server, copy its cell state
                     // into the corresponding HTML cell
@@ -143,10 +168,6 @@
                 console.error("Error fetching board state:", error);
             }
         }
-
-        document
-            .getElementById("refresh")
-            .addEventListener("click", updateBoard);
 
         window.addEventListener("load", () => {
             updateBoard();

@@ -48,6 +48,8 @@ const int BUTTON_PIN = 2;
 // Reversi game state
 int board[BOARD_SIZE][BOARD_SIZE] = {0}; // Board representation (0=empty, 1=black, 2=white)
 int currentPlayer = BLACK;               // Black goes first
+bool gameOver = false;                   // Flag for game over state
+int winner = EMPTY;                      // Winner of the game (BLACK, WHITE, or EMPTY for a tie)
 
 WiFiClient client;
 bool dataUpdated = false;
@@ -245,9 +247,11 @@ void initializeReversiBoard() {
   board[center][center] = WHITE;
   
   currentPlayer = BLACK;
+  gameOver = false;
+  winner = EMPTY;
   
   // Mark the board as updated so it will be sent to the server
-  boardUpdated = true;
+  dataUpdated = true;
   
   Serial.println("Reversi board initialized");
 }
@@ -256,6 +260,15 @@ void initializeReversiBoard() {
 void processSensorData() {
   // Skip if we don't have enough sensor data
   if (sensorCount != BOARD_SIZE * BOARD_SIZE) {
+    return;
+  }
+  
+  // Don't process moves if the game is over
+  if (gameOver) {
+    // Just update previous state for next comparison
+    for (int i = 0; i < sensorCount; i++) {
+      previousSensorState[i] = sensorState[i];
+    }
     return;
   }
   
@@ -280,8 +293,28 @@ void processSensorData() {
         // Flip opponent's pieces
         flipPieces(row, col);
         
-        // Switch to the other player
-        currentPlayer = (currentPlayer == BLACK) ? WHITE : BLACK;
+        // Check if the game is over after this move
+        checkGameOver();
+        
+        // If game not over, switch to the other player
+        if (!gameOver) {
+          currentPlayer = (currentPlayer == BLACK) ? WHITE : BLACK;
+          
+          // Check if the next player has any valid moves
+          if (!hasValidMoves(currentPlayer)) {
+            // If the current player has no valid moves, skip their turn
+            Serial.println("Player has no valid moves, skipping turn");
+            currentPlayer = (currentPlayer == BLACK) ? WHITE : BLACK;
+            
+            // Check if the original player also has no moves
+            if (!hasValidMoves(currentPlayer)) {
+              // If neither player has moves, the game is over
+              Serial.println("Neither player has valid moves - game over");
+              gameOver = true;
+              determineWinner();
+            }
+          }
+        }
       }
     }
     
@@ -358,6 +391,115 @@ void flipInDirection(int row, int col, int dRow, int dCol) {
   }
 }
 
+// Check if a player has any valid moves
+bool hasValidMoves(int player) {
+  // Check each empty cell to see if it's a valid move for the player
+  for (int row = 0; row < BOARD_SIZE; row++) {
+    for (int col = 0; col < BOARD_SIZE; col++) {
+      if (board[row][col] == EMPTY) {
+        // Check if placing a piece here would flip any opponent pieces
+        if (isValidMove(row, col, player)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+// Check if placing a piece at (row, col) is valid for the given player
+bool isValidMove(int row, int col, int player) {
+  if (board[row][col] != EMPTY) {
+    return false;
+  }
+  
+  int opponent = (player == BLACK) ? WHITE : BLACK;
+  
+  // Check in all 8 directions
+  for (int dRow = -1; dRow <= 1; dRow++) {
+    for (int dCol = -1; dCol <= 1; dCol++) {
+      if (dRow == 0 && dCol == 0) continue;
+      
+      int r = row + dRow;
+      int c = col + dCol;
+      
+      // Must have at least one opponent piece adjacent
+      if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] == opponent) {
+        r += dRow;
+        c += dCol;
+        
+        // Keep going in this direction
+        while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
+          if (board[r][c] == EMPTY) break;
+          if (board[r][c] == player) return true; // Found a player piece, so this is a valid move
+          
+          // Continue in this direction
+          r += dRow;
+          c += dCol;
+        }
+      }
+    }
+  }
+  
+  return false;
+}
+
+// Check if the game is over
+void checkGameOver() {
+  // Game is over if the board is full
+  bool boardFull = true;
+  
+  for (int row = 0; row < BOARD_SIZE; row++) {
+    for (int col = 0; col < BOARD_SIZE; col++) {
+      if (board[row][col] == EMPTY) {
+        boardFull = false;
+        break;
+      }
+    }
+    if (!boardFull) break;
+  }
+  
+  if (boardFull) {
+    gameOver = true;
+    Serial.println("Game over - board is full");
+    determineWinner();
+  }
+}
+
+// Determine the winner based on piece count
+void determineWinner() {
+  int blackCount = 0;
+  int whiteCount = 0;
+  
+  // Count pieces for each player
+  for (int row = 0; row < BOARD_SIZE; row++) {
+    for (int col = 0; col < BOARD_SIZE; col++) {
+      if (board[row][col] == BLACK) {
+        blackCount++;
+      } else if (board[row][col] == WHITE) {
+        whiteCount++;
+      }
+    }
+  }
+  
+  Serial.print("Game over - Black: ");
+  Serial.print(blackCount);
+  Serial.print(", White: ");
+  Serial.println(whiteCount);
+  
+  // Set the winner
+  if (blackCount > whiteCount) {
+    winner = BLACK;
+    Serial.println("Black wins!");
+  } else if (whiteCount > blackCount) {
+    winner = WHITE;
+    Serial.println("White wins!");
+  } else {
+    winner = EMPTY;
+    Serial.println("It's a tie!");
+  }
+}
+
 // Send the current board state to the web server
 void sendBoardStateToServer() {
   if (!serverConnected) {
@@ -382,6 +524,10 @@ void sendBoardStateToServer() {
   
   // Add current player
   offset += sprintf(httpBody + offset, "&currentPlayer=%d", currentPlayer);
+  
+  // Add game status data
+  offset += sprintf(httpBody + offset, "&gameOver=%d&winner=%d", gameOver ? 1 : 0, winner);
+  
   httpBody[offset] = '\0';
   
   // Send the HTTP request

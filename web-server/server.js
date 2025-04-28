@@ -45,19 +45,25 @@ app.use(express.json());
 global.sensorState = new Array(16).fill('0'); // 4x4 board
 global.boardState = new Array(16).fill('0'); // 0=empty, 1=black, 2=white
 global.currentPlayer = 1; // 1=black, 2=white
+global.gameOver = false; // Track game over state
+global.winner = 0; // 0=tie, 1=black, 2=white
 
 function initializeReversiBoard() {
   global.boardState = new Array(16).fill('0');
   
-  // const centerOffsetA = 1; // one away from left or top
-  // const centerOffsetB = 2; // two away from left or top // TODO should probably calculate this based on boardSize
-  // const boardSize = 4;
-  // global.boardState[centerOffsetA * boardSize + centerOffsetA] = '2';
-  // global.boardState[centerOffsetA * boardSize + centerOffsetB] = '1';
-  // global.boardState[centerOffsetB * boardSize + centerOffsetA] = '1'; 
-  // global.boardState[centerOffsetB * boardSize + centerOffsetB] = '2';
+  // Set up the initial four pieces in the center
+  const boardSize = 4;
+  const centerA = 1; // First center position (0-indexed)
+  const centerB = 2; // Second center position (0-indexed)
   
-  global.currentPlayer = 1;
+  global.boardState[centerA * boardSize + centerA] = '2'; // WHITE
+  global.boardState[centerA * boardSize + centerB] = '1'; // BLACK
+  global.boardState[centerB * boardSize + centerA] = '1'; // BLACK 
+  global.boardState[centerB * boardSize + centerB] = '2'; // WHITE
+  
+  global.currentPlayer = 1; // BLACK goes first
+  global.gameOver = false;
+  global.winner = 0;
   
   console.log("Reversi board initialized");
 }
@@ -90,8 +96,27 @@ app.post("/update-board", (req, res) => {
     global.currentPlayer = parseInt(req.body.currentPlayer);
   }
   
+  // Update game status if provided
+  if (req.body.gameOver !== undefined) {
+    global.gameOver = req.body.gameOver === "1";
+  }
+  
+  if (req.body.winner !== undefined) {
+    global.winner = parseInt(req.body.winner);
+  }
+  
   console.log("Updated Board State");
   console.log("Current Player:", global.currentPlayer === 1 ? "BLACK" : "WHITE");
+  
+  if (global.gameOver) {
+    let winnerText = "It's a tie!";
+    if (global.winner === 1) {
+      winnerText = "BLACK wins!";
+    } else if (global.winner === 2) {
+      winnerText = "WHITE wins!";
+    }
+    console.log("Game Over - " + winnerText);
+  }
 
   res.status(200).send("OK");
 });
@@ -103,7 +128,9 @@ app.get("/board-state", (req, res) => {
   res.json({
     boardState: global.boardState,
     boardArray: boardArray,
-    currentPlayer: global.currentPlayer
+    currentPlayer: global.currentPlayer,
+    gameOver: global.gameOver,
+    winner: global.winner
   });
 });
 
