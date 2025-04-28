@@ -1,146 +1,158 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <!-- Big shout-out to w3schools for CSS and HTML references -->
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Chess Board Visualizer</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                flex-direction: column;
-                height: 100vh;
-                margin: 0;
-                background-color: #f5f5f5;
-            }
-            .chess-board {
-                display: grid;
-                grid-template-columns: repeat(8, 50px);
-                grid-template-rows: repeat(8, 50px);
-                border: 2px solid #333;
-                box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
-            }
-            .square {
-                width: 50px;
-                height: 50px;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                font-size: 32px;
-            }
-            .white {
-                background-color: #f0d9b5;
-            }
-            .black {
-                background-color: #b58863;
-            }
-            .piece {
-                user-select: none;
-            }
-            .controls {
-                margin-top: 20px;
-            }
-            button {
-                padding: 8px 16px;
-                background-color: #4caf50;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 16px;
-            }
-            button:hover {
-                background-color: #45a049;
-            }
-        </style>
-    </head>
-    <body>
-        <h1>Chess Board Visualizer</h1>
-        <div class="chess-board" id="board">
-            <!-- The squares are generated in JS below -->
-        </div>
-        <div class="controls">
-            <button id="refresh">Refresh Board</button>
-        </div>
 
-        <script>
-            // Map pieces to chess unicode symbols
-            // Lowercase is white.
-            // Uppercase is black.
-            const pieceMap = {
-                r: "♜",
-                n: "♞",
-                b: "♝",
-                q: "♛",
-                k: "♚",
-                p: "♟",
-                R: "♖",
-                N: "♘",
-                B: "♗",
-                Q: "♕",
-                K: "♔",
-                P: "♙",
-                " ": "",
-            };
+<head>
+    <!-- Big shout-out to w3schools for CSS and HTML references -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reversi Board Visualizer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
 
-            // Generate squares for the chess board
-            const board = document.getElementById("board");
-            for (let row = 0; row < 8; row++) {
-                for (let col = 0; col < 8; col++) {
-                    const square = document.createElement("div");
-                    square.className = `square ${(row + col) % 2 === 0 ? "white" : "black"}`;
-                    square.id = `square-${row}-${col}`;
-                    board.appendChild(square);
-                }
+        .reversi-board {
+            display: grid;
+            grid-template-columns: repeat(4, 70px);
+            grid-template-rows: repeat(4, 70px);
+            border: 2px solid #333;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .square {
+            width: 70px;
+            height: 70px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #1e8c35;
+            border: 1px solid #000;
+        }
+
+        .piece {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+        }
+
+        .black-piece {
+            background-color: #000;
+        }
+
+        .white-piece {
+            background-color: #fff;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .status {
+            margin-bottom: 10px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        button {
+            padding: 8px 16px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Group 61 - Cybernetic Reversi Board</h1>
+    <div class="reversi-board" id="board"></div>
+    <div class="controls">
+        <div class="status" id="player-turn">Current Turn: Black</div>
+        <div class="status"><i>If the board is empty, make sure Arduino #3 is connected to the web server.</i></div>
+        <button id="refresh">Refresh Board</button>
+    </div>
+
+    <script>
+        const board = document.getElementById("board");
+
+        // You have to iterate either forwards or backwards, depending on which way the player is facing the board.
+        // During our testing, the board was facing at the front-right of the player, so because of the way our
+        // hall effect sensors are layed out and how Arduino #1 reads them, we have to create our HTML tiles in
+        // reverse order so that the physical board matches the virtual board.
+        for (let row = 3; row >= 0; row--) {
+            for (let col = 3; col >= 0; col--) {
+                const square = document.createElement("div");
+                square.className = "square";
+                square.id = `square-${row}-${col}`;
+                board.appendChild(square);
             }
+        }
 
-            // Fetches board state from the web server, parses the response, and updates the board
-            async function updateBoard() {
-                try {
-                    // Fetch board state from the web server
-                    const response = await fetch("/state");
-                    const data = await response.json();
+        // This gets called automatically every so often, and you can also run it manually by
+        // clicking the "Refresh Board" button
+        async function updateBoard() {
+            try {
+                const response = await fetch("/board-state");
+                const data = await response.json();
 
-                    if (data.board) {
-                        const boardState = data.board;
+                if (data.boardArray) {
+                    const boardArray = data.boardArray;
+                    const currentPlayer = data.currentPlayer || 1;
 
-                        // Parse the board state (format: RNBKQBNR,PPPPPPPP,        ,        ,        ,        ,pppppppp,rnbkqbnr)
-                        const rows = boardState.split(",");
+                    const playerTurnString = currentPlayer === 1 ? 'Black' : 'White';
 
-                        for (let row = 0; row < 8; row++) {
-                            const rowData = rows[row] || "        ";
-                            for (let col = 0; col < 8; col++) {
-                                const piece = rowData[col] || " ";
-                                const square = document.getElementById(
-                                    `square-${row}-${col}`,
-                                );
-                                square.innerHTML = `<span class="piece">${pieceMap[piece]}</span>`;
-                            }
+                    document.getElementById("player-turn").textContent = `Current Turn: ${playerTurnString}`;
+
+                    // For each cell of the board state we just fetched from the server, copy its cell state
+                    // into the corresponding HTML cell
+                    for (let i = 0; i < boardArray.length; i++) {
+                        const row = Math.floor(i / 4);
+                        const col = i % 4;
+                        const piece = boardArray[i];
+                        const square = document.getElementById(`square-${row}-${col}`);
+
+                        square.innerHTML = '';
+
+                        // Add a piece if needed
+                        if (piece === 1 || piece === 2) {
+                            const pieceElement = document.createElement('div');
+                            pieceElement.className = `piece ${piece === 1 ? 'black-piece' : 'white-piece'}`;
+                            square.appendChild(pieceElement);
                         }
                     }
-                } catch (error) {
-                    console.error("Error fetching board state:", error);
                 }
+            } catch (error) {
+                console.error("Error fetching board state:", error);
             }
+        }
 
-            // Set up auto-refresh
-            let refreshInterval;
+        document
+            .getElementById("refresh")
+            .addEventListener("click", updateBoard);
 
-            function startAutoRefresh() {
-                updateBoard(); // Initial update
-                refreshInterval = setInterval(updateBoard, 750);
-            }
+        window.addEventListener("load", () => {
+            updateBoard();
+            setInterval(updateBoard, 750);
+        });
+    </script>
+</body>
 
-            // Event listeners
-            document
-                .getElementById("refresh")
-                .addEventListener("click", updateBoard);
-
-            // Start auto-refresh when page loads
-            window.addEventListener("load", startAutoRefresh);
-        </script>
-    </body>
 </html>

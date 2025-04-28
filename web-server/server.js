@@ -42,40 +42,68 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-global.sensorState = new Array(16).fill('0');
+global.sensorState = new Array(16).fill('0'); // 4x4 board
+global.boardState = new Array(16).fill('0'); // 0=empty, 1=black, 2=white
+global.currentPlayer = 1; // 1=black, 2=white
 
-// Endpoint for Arduino #3 to update sensor state
-app.post("/update-sensors", (req, res) => {
-  if (!req.body || !req.body.sensorState) {
-    const error = "Bad request: missing sensor state data";
+function initializeReversiBoard() {
+  global.boardState = new Array(16).fill('0');
+  
+  // const centerOffsetA = 1; // one away from left or top
+  // const centerOffsetB = 2; // two away from left or top // TODO should probably calculate this based on boardSize
+  // const boardSize = 4;
+  // global.boardState[centerOffsetA * boardSize + centerOffsetA] = '2';
+  // global.boardState[centerOffsetA * boardSize + centerOffsetB] = '1';
+  // global.boardState[centerOffsetB * boardSize + centerOffsetA] = '1'; 
+  // global.boardState[centerOffsetB * boardSize + centerOffsetB] = '2';
+  
+  global.currentPlayer = 1;
+  
+  console.log("Reversi board initialized");
+}
+
+// Initialize the board at startup
+initializeReversiBoard();
+
+// Endpoint for Arduino #3 to update board state
+app.post("/update-board", (req, res) => {
+  if (!req.body || !req.body.boardState) {
+    const error = "Bad request: missing board state data";
     console.error(error);
     res.status(400).send(error);
     return;
   }
 
-  const sensorValues = req.body.sensorState.split(',');
+  const boardValues = req.body.boardState.split(',');
   
-  if (sensorValues.length !== 16) {
-    const error = `Invalid sensor state length: ${sensorValues.length} (expected 6)`;
+  if (boardValues.length !== 16) {
+    const error = `Invalid board state length: ${boardValues.length} (expected 16)`;
     console.error(error);
     res.status(400).send(error);
     return;
   }
   
-  global.sensorState = sensorValues;
-  console.log("Updated Sensor State:", global.sensorState);
+  global.boardState = boardValues;
+  
+  // Update current player if provided
+  if (req.body.currentPlayer) {
+    global.currentPlayer = parseInt(req.body.currentPlayer);
+  }
+  
+  console.log("Updated Board State");
+  console.log("Current Player:", global.currentPlayer === 1 ? "BLACK" : "WHITE");
 
   res.status(200).send("OK");
 });
 
-// Endpoint for web page to get sensor state
-app.get("/sensor-state", (req, res) => {
-
-  const sensorArray = global.sensorState.map(v => v === '1' ? 1 : 0);
+// Endpoint for web page to get board state
+app.get("/board-state", (req, res) => {
+  const boardArray = global.boardState.map(v => parseInt(v));
   
   res.json({
-    sensorState: global.sensorState,
-    sensorArray: sensorArray
+    boardState: global.boardState,
+    boardArray: boardArray,
+    currentPlayer: global.currentPlayer
   });
 });
 
@@ -83,12 +111,6 @@ app.get("/sensor-state", (req, res) => {
 app.get("/", (req, res) => {
   console.log("Serving index.html");
   res.sendFile(path.join(__dirname, "index.html"));
-});
-
-// Serve the sensor visualizer page
-app.get("/sensors", (req, res) => {
-  console.log("Serving sensors.html");
-  res.sendFile(path.join(__dirname, "sensors.html"));
 });
 
 // This is for Arduino #3's keep-alive connection but I'm not sure if it works

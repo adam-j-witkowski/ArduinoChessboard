@@ -26,14 +26,26 @@ const char *serverIP = "10.41.183.81"; // Web server IP address (should be auto-
 const int serverPort = 3000;           // Web server port (should be constant)
 
 const int MAX_SENSORS = 32; // Most amount of sensors that could ever be connected to Arduino #1
+const int BOARD_SIZE = 4;   // 4x4 Reversi board
+
+// Reversi board states
+const int EMPTY = 0;
+const int BLACK = 1;  // Black always goes first
+const int WHITE = 2;
 
 const unsigned long WIFI_CHECK_INTERVAL = 500; // WiFi connection check interval in ms
 const unsigned long PROCESS_INTERVAL = 50;     // Main processing interval in ms (now much faster)
 const unsigned long RECONNECT_INTERVAL = 5000; // How often to check the server connection
+const unsigned long BOARD_UPDATE_INTERVAL = 1000; // How often to send board state to server
 
 int sensorCount = 0;                             // Will be determined from Arduino #1's messages
 bool sensorState[MAX_SENSORS] = {false};         // Array of booleans for magnet present/absent
 bool previousSensorState[MAX_SENSORS] = {false}; // To track changes
+
+// Reversi game state
+int board[BOARD_SIZE][BOARD_SIZE] = {0};         // Board representation (0=empty, 1=black, 2=white)
+int currentPlayer = BLACK;                       // Black goes first
+bool boardUpdated = false;                       // Flag to indicate board state changed
 
 WiFiClient client;
 bool dataUpdated = false;
@@ -47,6 +59,9 @@ void setup()
 
   Serial.println("Connecting to WiFi...");
   WiFi.begin(ssid, password);
+  
+  // Initialize Reversi board with starting position
+  initializeReversiBoard();
 }
 
 // Try and connect to the server, returning 'true' on success and 'false' on failure
@@ -95,6 +110,7 @@ void loop()
   static unsigned long lastWifiCheckTime = millis();
   static unsigned long lastProcessTime = millis();
   static unsigned long lastConnectionCheckTime = millis();
+  static unsigned long lastBoardUpdateTime = millis();
 
   // Re-connect to the internet if necessary
   if (!wifiConnected && millis() - lastWifiCheckTime >= WIFI_CHECK_INTERVAL) {
@@ -131,13 +147,20 @@ void loop()
     
     // If data is ready, AND the wifi is connected,
     if (dataUpdated && wifiConnected) {
+      // Process game board based on sensor data
+      processSensorData();
 
-      // AND we are already connected, OR we are able to hotfix our connection on-the-spot....
-      if (serverConnected || ensureServerConnection()) {
-        // ...then send the data.
-        sendSensorDataToServer();
-      }
       dataUpdated = false;
+    }
+  }
+  
+  // Periodically send board state to server
+  if (wifiConnected && millis() - lastBoardUpdateTime >= BOARD_UPDATE_INTERVAL) {
+    lastBoardUpdateTime = millis();
+    
+    if (serverConnected || ensureServerConnection()) {
+      sendBoardStateToServer();
+      boardUpdated = false;
     }
   }
 }
@@ -187,30 +210,162 @@ void readSensorDataFromSerial()
         receivingMessage = true;
       }
     }
-    // Ignore any other characters that aren't '0', '1', or '\n'
   }
 }
 
-void sendSensorDataToServer()
-{
-  // skip obvious failure cases
-  if (!serverConnected || sensorCount == 0) {
+// Initialize the Reversi board with starting position
+void initializeReversiBoard() {
+  // Clear the board
+  for (int row = 0; row < BOARD_SIZE; row++) {
+    for (int col = 0; col < BOARD_SIZE; col++) {
+      board[row][col] = EMPTY;
+    }
+  }
+  
+  // Set up the initial four pieces in the center
+  int center = BOARD_SIZE / 2;
+  board[center-1][center-1] = WHITE;
+  board[center-1][center] = BLACK;
+  board[center][center-1] = BLACK;
+  board[center][center] = WHITE;
+  
+  // Reset the current player to BLACK (first player)
+  currentPlayer = BLACK;
+  
+  // Mark the board as updated so it will be sent to the server
+  boardUpdated = true;
+  
+  Serial.println("Reversi board initialized");
+}
+
+// Process sensor data to update the game board
+void processSensorData() {
+  // Skip if we don't have enough sensor data
+  if (sensorCount != BOARD_SIZE * BOARD_SIZE) {
     return;
   }
-
-  // Construct our body first, since we need its length to make the headers
-  char httpBody[128];
-  strcpy(httpBody, "sensorState=");
-  int offset = strlen(httpBody);
+  
+  // Check for any new pieces that have been added
   for (int i = 0; i < sensorCount; i++) {
-    httpBody[offset++] = sensorState[i] ? '1' : '0';
-    if (i < sensorCount - 1) {
+    int row = i / BOARD_SIZE;
+    int col = i % BOARD_SIZE;
+    
+    // A new piece was added (sensor now active but wasn't before)
+    if (sensorState[i] && !previousSensorState[i]) {
+      // Only process the move if it's a valid empty square
+      if (board[row][col] == EMPTY) {
+        // Place the piece of the current player
+        board[row][col] = currentPlayer;
+        Serial.print("New piece at row ");
+        Serial.print(row);
+        Serial.print(", col ");
+        Serial.print(col);
+        Serial.print(" for player ");
+        Serial.println(currentPlayer == BLACK ? "BLACK" : "WHITE");
+        
+        // Flip opponent's pieces
+        flipPieces(row, col);
+        
+        // Switch to the other player
+        currentPlayer = (currentPlayer == BLACK) ? WHITE : BLACK;
+        
+        // Mark board as updated so it will be sent to the server
+        boardUpdated = true;
+      }
+    }
+    
+    // Update previous state for next comparison
+    previousSensorState[i] = sensorState[i];
+  }
+}
+
+// Flip pieces according to Reversi rules
+void flipPieces(int row, int col) {
+  // Get the opponent's piece color
+  int opponent = (currentPlayer == BLACK) ? WHITE : BLACK;
+  
+  // Check in all 8 directions
+  for (int dRow = -1; dRow <= 1; dRow++) {
+    for (int dCol = -1; dCol <= 1; dCol++) {
+      // Skip the center (no direction)
+      if (dRow == 0 && dCol == 0) continue;
+      
+      // Check if there's a valid line to flip
+      if (canFlip(row, col, dRow, dCol)) {
+        flipInDirection(row, col, dRow, dCol);
+      }
+    }
+  }
+}
+
+// Check if we can flip pieces in a given direction
+bool canFlip(int row, int col, int dRow, int dCol) {
+  int opponent = (currentPlayer == BLACK) ? WHITE : BLACK;
+  int r = row + dRow;
+  int c = col + dCol;
+  
+  // Must have at least one opponent piece adjacent
+  if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE || board[r][c] != opponent) {
+    return false;
+  }
+  
+  // Continue in this direction
+  r += dRow;
+  c += dCol;
+  
+  // Keep going until we hit a boundary or an empty space
+  while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
+    if (board[r][c] == EMPTY) return false;
+    if (board[r][c] == currentPlayer) return true;
+    
+    r += dRow;
+    c += dCol;
+  }
+  
+  return false;
+}
+
+// Flip pieces in a given direction
+void flipInDirection(int row, int col, int dRow, int dCol) {
+  int r = row + dRow;
+  int c = col + dCol;
+  
+  // Keep flipping until we reach our own piece
+  while (board[r][c] != currentPlayer) {
+    board[r][c] = currentPlayer;
+    r += dRow;
+    c += dCol;
+  }
+}
+
+// Send the current board state to the web server
+void sendBoardStateToServer() {
+  if (!serverConnected) {
+    return;
+  }
+  
+  // Construct the HTTP body with board state
+  char httpBody[512];
+  strcpy(httpBody, "boardState=");
+  int offset = strlen(httpBody);
+  
+  for (int i = 0; i < BOARD_SIZE * BOARD_SIZE; i++) {
+    int row = i / BOARD_SIZE;
+    int col = i % BOARD_SIZE;
+    
+    httpBody[offset++] = '0' + board[row][col]; // Convert 0,1,2 to '0','1','2'
+    
+    if (i < (BOARD_SIZE * BOARD_SIZE - 1)) {
       httpBody[offset++] = ',';
     }
   }
+  
+  // Add current player
+  offset += sprintf(httpBody + offset, "&currentPlayer=%d", currentPlayer);
   httpBody[offset] = '\0';
   
-  client.print("POST /update-sensors HTTP/1.1\r\nHost: ");
+  // Send the HTTP request
+  client.print("POST /update-board HTTP/1.1\r\nHost: ");
   client.print(serverIP);
   client.print("\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: ");
   client.print(offset);
@@ -218,8 +373,10 @@ void sendSensorDataToServer()
   client.print(httpBody);
   client.flush();
   
-  // Ignore the response, we don't really care lol
+  // Ignore the response
   while (client.available()) {
     client.read();
   }
+  
+  Serial.println("Board state sent to server");
 }
