@@ -42,6 +42,8 @@ int sensorCount = 0;                             // Will be determined from Ardu
 bool sensorState[MAX_SENSORS] = {false};         // Array of booleans for magnet present/absent
 bool previousSensorState[MAX_SENSORS] = {false}; // To track changes
 
+const int BUTTON_PIN = 2;
+
 // Reversi game state
 int board[BOARD_SIZE][BOARD_SIZE] = {0};         // Board representation (0=empty, 1=black, 2=white)
 int currentPlayer = BLACK;                       // Black goes first
@@ -56,6 +58,9 @@ void setup()
 {
   Serial.begin(9600);
   Serial1.begin(9600);
+
+  // Setup reset button with internal pull-up resistor
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   Serial.println("Connecting to WiFi...");
   WiFi.begin(ssid, password);
@@ -111,6 +116,23 @@ void loop()
   static unsigned long lastProcessTime = millis();
   static unsigned long lastConnectionCheckTime = millis();
   static unsigned long lastBoardUpdateTime = millis();
+  static bool lastButtonState = HIGH; // Using pull-up resistor, so HIGH is unpressed
+
+  // Check for button press to reset the board
+  bool currentButtonState = digitalRead(BUTTON_PIN);
+  
+  // Detect button press (LOW when pressed with pull-up resistor)
+  if (currentButtonState == LOW && lastButtonState == HIGH) {
+    // Button was pressed, reset the board
+    Serial.println("Reset button pressed - reinitializing board");
+    initializeReversiBoard();
+    
+    // Force an immediate board state update
+    if (wifiConnected && (serverConnected || ensureServerConnection())) {
+      sendBoardStateToServer();
+    }
+  }
+  lastButtonState = currentButtonState;
 
   // Re-connect to the internet if necessary
   if (!wifiConnected && millis() - lastWifiCheckTime >= WIFI_CHECK_INTERVAL) {
