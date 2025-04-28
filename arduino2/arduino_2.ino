@@ -2,8 +2,8 @@
 #include <LiquidCrystal.h>
 
 // Pin Definitions
-const uint8_t LED_Black = 7;
-const uint8_t LED_White = 6;
+const uint8_t LED_Black = 6;
+const uint8_t LED_White = 7;
 
 const uint8_t CLK1 = A4;
 const uint8_t DIO1 = A3;
@@ -20,7 +20,8 @@ TM1637Display display1(CLK1, DIO1);
 TM1637Display display2(CLK2, DIO2);
 
 // Timer Config
-const unsigned long INITIAL_TIME = 5 * 60;
+const unsigned long INITIAL_TIME = 3 * 60;
+const unsigned long INITIAL_TIME = 10;
 volatile unsigned long time1 = INITIAL_TIME;
 volatile unsigned long time2 = INITIAL_TIME;
 
@@ -29,7 +30,7 @@ volatile uint8_t activePlayer = 1;
 volatile bool paused = true;
 unsigned long lastTick = 0;
 
-// Beep/victory tune timing variables
+// Warning beep/victory tune timing variables
 bool beeping = false;
 int beepCount = 0;
 unsigned long lastBeepTime = 0;
