@@ -21,7 +21,6 @@ TM1637Display display2(CLK2, DIO2);
 
 // Timer Config
 const unsigned long INITIAL_TIME = 3 * 60;
-const unsigned long INITIAL_TIME = 10;
 volatile unsigned long time1 = INITIAL_TIME;
 volatile unsigned long time2 = INITIAL_TIME;
 
