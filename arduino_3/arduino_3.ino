@@ -15,6 +15,7 @@
  * Reference: https://docs.arduino.cc/language-reference/en/functions/communication/serial/
  * Reference: https://stackoverflow.com/questions/20763999/explain-http-keep-alive-mechanism
  * Reference: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/POST
+ * Reference: https://docs.arduino.cc/built-in-examples/digital/Button/
  */
 
 #include <WiFiS3.h>
@@ -45,9 +46,8 @@ bool previousSensorState[MAX_SENSORS] = {false}; // To track changes
 const int BUTTON_PIN = 2;
 
 // Reversi game state
-int board[BOARD_SIZE][BOARD_SIZE] = {0};         // Board representation (0=empty, 1=black, 2=white)
-int currentPlayer = BLACK;                       // Black goes first
-bool boardUpdated = false;                       // Flag to indicate board state changed
+int board[BOARD_SIZE][BOARD_SIZE] = {0}; // Board representation (0=empty, 1=black, 2=white)
+int currentPlayer = BLACK;               // Black goes first
 
 WiFiClient client;
 bool dataUpdated = false;
@@ -59,13 +59,11 @@ void setup()
   Serial.begin(9600);
   Serial1.begin(9600);
 
-  // Setup reset button with internal pull-up resistor
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   Serial.println("Connecting to WiFi...");
   WiFi.begin(ssid, password);
   
-  // Initialize Reversi board with starting position
   initializeReversiBoard();
 }
 
@@ -118,20 +116,18 @@ void loop()
   static unsigned long lastBoardUpdateTime = millis();
   static bool lastButtonState = HIGH; // Using pull-up resistor, so HIGH is unpressed
 
-  // Check for button press to reset the board
+  // Detect button activity by comparing previous state with current state
   bool currentButtonState = digitalRead(BUTTON_PIN);
-  
-  // Detect button press (LOW when pressed with pull-up resistor)
   if (currentButtonState == LOW && lastButtonState == HIGH) {
-    // Button was pressed, reset the board
     Serial.println("Reset button pressed - reinitializing board");
     initializeReversiBoard();
     
-    // Force an immediate board state update
+    // We want the server to become aware immediately
     if (wifiConnected && (serverConnected || ensureServerConnection())) {
       sendBoardStateToServer();
     }
   }
+  // Remember the current state for next time
   lastButtonState = currentButtonState;
 
   // Re-connect to the internet if necessary
@@ -182,7 +178,6 @@ void loop()
     
     if (serverConnected || ensureServerConnection()) {
       sendBoardStateToServer();
-      boardUpdated = false;
     }
   }
 }
@@ -235,7 +230,8 @@ void readSensorDataFromSerial()
   }
 }
 
-// Initialize the Reversi board with starting position
+// This sets/resets the board state to a healthy initial condition, both when the
+// chip powers up and also when the 'reset' button is pressed
 void initializeReversiBoard() {
   // Clear the board
   for (int row = 0; row < BOARD_SIZE; row++) {
@@ -251,7 +247,6 @@ void initializeReversiBoard() {
   board[center][center-1] = BLACK;
   board[center][center] = WHITE;
   
-  // Reset the current player to BLACK (first player)
   currentPlayer = BLACK;
   
   // Mark the board as updated so it will be sent to the server
@@ -290,9 +285,6 @@ void processSensorData() {
         
         // Switch to the other player
         currentPlayer = (currentPlayer == BLACK) ? WHITE : BLACK;
-        
-        // Mark board as updated so it will be sent to the server
-        boardUpdated = true;
       }
     }
     
@@ -301,15 +293,17 @@ void processSensorData() {
   }
 }
 
-// Flip pieces according to Reversi rules
+// This updates the Reversi game state in response to a new piece being added to the board
 void flipPieces(int row, int col) {
-  // Get the opponent's piece color
+  
   int opponent = (currentPlayer == BLACK) ? WHITE : BLACK;
   
-  // Check in all 8 directions
+  // dRow and dCol are relative offsets to the current row and col,
+  // so we can explore in all 8 directions
   for (int dRow = -1; dRow <= 1; dRow++) {
     for (int dCol = -1; dCol <= 1; dCol++) {
-      // Skip the center (no direction)
+
+      // this is our piece (no offset)
       if (dRow == 0 && dCol == 0) continue;
       
       // Check if there's a valid line to flip
@@ -320,18 +314,22 @@ void flipPieces(int row, int col) {
   }
 }
 
-// Check if we can flip pieces in a given direction
+// This starts at row and col and progressively increments by dRow and dCol
+// basically 'scanning' from a starting position towards a certain direction
+// until it finds a piece of our color, which means YES we are eligible to flip
+// some pieces in this direction, otherwise NO because we don't enclose any
+// cells in this direction.
 bool canFlip(int row, int col, int dRow, int dCol) {
   int opponent = (currentPlayer == BLACK) ? WHITE : BLACK;
   int r = row + dRow;
   int c = col + dCol;
   
-  // Must have at least one opponent piece adjacent
+  // Stop if we immediately hit a boundary or hit our own piece
   if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE || board[r][c] != opponent) {
     return false;
   }
   
-  // Continue in this direction
+  // Move forward again, and then...
   r += dRow;
   c += dCol;
   
@@ -347,12 +345,15 @@ bool canFlip(int row, int col, int dRow, int dCol) {
   return false;
 }
 
-// Flip pieces in a given direction
+// This is supposed to be used after 'canFlip' which tells us whether
+// we will eventually find a piece of our own color by starting at row
+// and col and continuing to 'walk' in a certain direction.  It will
+// flip all the pieces of our oponent's color until we reach our own
+// color.
 void flipInDirection(int row, int col, int dRow, int dCol) {
   int r = row + dRow;
   int c = col + dCol;
   
-  // Keep flipping until we reach our own piece
   while (board[r][c] != currentPlayer) {
     board[r][c] = currentPlayer;
     r += dRow;
