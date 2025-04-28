@@ -84,6 +84,7 @@ void processSerial() {
     char cmd = Serial.read();
 
     if (cmd == 'S') { // Start Game
+      time1 = INITIAL_TIME;
       activePlayer = 1;
       paused = false;
       digitalWrite(LED_Black, HIGH);
@@ -91,6 +92,7 @@ void processSerial() {
       lcd.setCursor(0, 0);
       lcd.print("  Black's Turn   ");
       tone(BUZZER_PIN, 1500, 100);
+      updateDisplays();        
     }
     else if (cmd == 'M') { // Move has been made, swap players
       if (activePlayer == 1) {
