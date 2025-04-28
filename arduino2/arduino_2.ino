@@ -85,6 +85,7 @@ void processSerial() {
 
     if (cmd == 'S') { // Start Game
       time1 = INITIAL_TIME;
+      time2 = INITIAL_TIME;
       activePlayer = 1;
       paused = false;
       digitalWrite(LED_Black, HIGH);
