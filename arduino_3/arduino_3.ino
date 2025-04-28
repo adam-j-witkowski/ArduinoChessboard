@@ -193,20 +193,17 @@ void readSensorDataFromSerial()
   {
     char c = Serial1.read();
 
-    // Process each character based on arduino_1's new protocol
-    // Arduino #1 now sends '1'/'0' for each sensor followed by '\n'
+    /// New line indicates end of message
     if (c == '\n')
     {
-      // End of message, process the collected data
       if (bufferIndex > 0) {
-        // Add null terminator to make it a proper string
+
+        // bufferIndex conveniently stores how many sensors we've read the states from so far
         serialBuffer[bufferIndex] = '\0';
-        
-        // Set the number of sensors based on the message length
         sensorCount = bufferIndex;
         
         if (sensorCount > 0 && sensorCount <= MAX_SENSORS) {
-          // Parse each character in the buffer ('1' or '0') into our sensor state array
+          // Copy the data we've accumulated from this message so far into our sensorState array
           for (int i = 0; i < sensorCount; i++) {
             sensorState[i] = (serialBuffer[i] == '1');
           }
@@ -214,14 +211,14 @@ void readSensorDataFromSerial()
           dataUpdated = true;
         }
         
-        // Reset the buffer for the next message
+        // since we reached the end, reset tracking vars for next incoming message
         bufferIndex = 0;
         receivingMessage = false;
       }
     }
     else if (c == '1' || c == '0')
     {
-      // If it's a valid sensor state character, add it to our buffer
+      // we got a sensor state in the middle of the message, write it into our message buffer
       if (bufferIndex < sizeof(serialBuffer) - 1) {
         serialBuffer[bufferIndex++] = c;
         receivingMessage = true;
