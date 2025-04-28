@@ -253,6 +253,7 @@ void initializeReversiBoard() {
   // Mark the board as updated so it will be sent to the server
   dataUpdated = true;
   
+  Serial1.write('S');
   Serial.println("Reversi board initialized");
 }
 
@@ -289,6 +290,8 @@ void processSensorData() {
         Serial.print(col);
         Serial.print(" for player ");
         Serial.println(currentPlayer == BLACK ? "BLACK" : "WHITE");
+
+        Serial1.write('M');
         
         // Flip opponent's pieces
         flipPieces(row, col);
@@ -299,21 +302,6 @@ void processSensorData() {
         // If game not over, switch to the other player
         if (!gameOver) {
           currentPlayer = (currentPlayer == BLACK) ? WHITE : BLACK;
-          
-          // Check if the next player has any valid moves
-          if (!hasValidMoves(currentPlayer)) {
-            // If the current player has no valid moves, skip their turn
-            Serial.println("Player has no valid moves, skipping turn");
-            currentPlayer = (currentPlayer == BLACK) ? WHITE : BLACK;
-            
-            // Check if the original player also has no moves
-            if (!hasValidMoves(currentPlayer)) {
-              // If neither player has moves, the game is over
-              Serial.println("Neither player has valid moves - game over");
-              gameOver = true;
-              determineWinner();
-            }
-          }
         }
       }
     }
@@ -391,59 +379,6 @@ void flipInDirection(int row, int col, int dRow, int dCol) {
   }
 }
 
-// Check if a player has any valid moves
-bool hasValidMoves(int player) {
-  // Check each empty cell to see if it's a valid move for the player
-  for (int row = 0; row < BOARD_SIZE; row++) {
-    for (int col = 0; col < BOARD_SIZE; col++) {
-      if (board[row][col] == EMPTY) {
-        // Check if placing a piece here would flip any opponent pieces
-        if (isValidMove(row, col, player)) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
-// Check if placing a piece at (row, col) is valid for the given player
-bool isValidMove(int row, int col, int player) {
-  if (board[row][col] != EMPTY) {
-    return false;
-  }
-  
-  int opponent = (player == BLACK) ? WHITE : BLACK;
-  
-  // Check in all 8 directions
-  for (int dRow = -1; dRow <= 1; dRow++) {
-    for (int dCol = -1; dCol <= 1; dCol++) {
-      if (dRow == 0 && dCol == 0) continue;
-      
-      int r = row + dRow;
-      int c = col + dCol;
-      
-      // Must have at least one opponent piece adjacent
-      if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] == opponent) {
-        r += dRow;
-        c += dCol;
-        
-        // Keep going in this direction
-        while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
-          if (board[r][c] == EMPTY) break;
-          if (board[r][c] == player) return true; // Found a player piece, so this is a valid move
-          
-          // Continue in this direction
-          r += dRow;
-          c += dCol;
-        }
-      }
-    }
-  }
-  
-  return false;
-}
-
 // Check if the game is over
 void checkGameOver() {
   // Game is over if the board is full
@@ -491,9 +426,11 @@ void determineWinner() {
   if (blackCount > whiteCount) {
     winner = BLACK;
     Serial.println("Black wins!");
+    Serial1.write('B');
   } else if (whiteCount > blackCount) {
     winner = WHITE;
     Serial.println("White wins!");
+    Serial1.write('W');
   } else {
     winner = EMPTY;
     Serial.println("It's a tie!");
